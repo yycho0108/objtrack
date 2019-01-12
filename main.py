@@ -74,52 +74,51 @@ class Tracker(object):
 
     def track_v2(self, args):
         # detect already registered feature points from kpt0
-        i_ml, i_m0 = self.match(self.des, des0) # TODO : global match (i.e. bounded search but not constrained to current track)
 
-        # invert index
-        m_m0 = np.zeros(len(des0), dtype=np.bool)
-        m_m0[i_m0] = True
-        m_ml = np.zeros(len(self.des), dtype=np.bool)
-        m_ml[i_ml] = True
+        # global match (i.e. bounded search but not constrained to current track)
+        m_ml, m_m0 = self.match(self.des, des0, strict=True)
+        m_ml, m_m0 = self.match(self.des, des0, strict=False) # TODO : global match (i.e. bounded search but not constrained to current track)
 
-        ni_m0 = np.where(~m_m0)[0]
-        ni_ml = np.where(~m_ml)[0]
+        mla = (~m_ml & ~self.trk ) # case a : new; unmatched
+        mlb = ( m_ml & ~self.trk ) # case b : recovery; matched & untracked landmark
+        mlc = ( m_ml & self.trk  ) # case c : suppress; matched & tracked landmark
+        mld = (~m_ml & self.trk  ) # case d : old ; unmatched & tracked landmark
 
-        # index partition
-        i0 = np.arange(len(des0))
-        il = np.arange(len(self.des))
-        ril, ri0 = zip(*[(il, i0) for (il,i0) in zip(i_ll, i_l0) if il not in self.trk_i]) # track recovery
-
-        i0a = i0[ ni_m0 ] # case a : new; unmatched
-        i0b = i0[ ri0   ] # case b : recovery; matched & untracked landmark
-
-        ilc = il[ i_ml  ] # case c : suppress; matched & tracked landmark
-        ild = il[ ni_ml ] # case d : old ; unmatched & tracked landmark
+        m0a = ~m_m0 # new; unmatched
+        m0b = m_m0 & ... # matched & untracked
+        m0b = m_m0 & ... # matched & tracked
 
         # compute flows
-        pt1a, idx_ta = self.flow(img0, img1, pt0[i0a])
-        pt1b, idx_tb = self.flow(img0, img1, pt0[i0b])
-        pt1c, idx_tc = self.flow(img0, img1, ptl[ilc])
-        pt1d, idx_td = self.flow(img0, img1, ptl[ild])
+        pt1a, m_ta = self.flow(img0, img1, pt0[m0a])
+        pt1b, m_tb = self.flow(img0, img1, pt0[m0b])
+        pt1c, m_tc = self.flow(img0, img1, ptl[mlc])
+        pt1d, m_td = self.flow(img0, img1, ptl[mld])
 
         # case a : new
-        pt0_n = pt0[i0a][idx_ta]
-        pt1_n = pt1a[idx_ta]
+        pt0_n = pt0[m0a][m_ta]
+        pt1_n = pt1a[m_ta]
 
         # case b : recovery
-        pt0_r = pt0[i0b][idx_tb]
-        pt1_r = pt1b[idx_tb]
+        pt0_r = pt0[m0b][m_tb]
+        pt1_r = pt1b[m_tb]
 
         # case c : suppress
-        pt0_s = ptl[ilc][idx_tc]
-        pt1_s = pt1c[idx_tc]
+        pt0_s = ptl[mlc][m_tc]
+        pt1_s = pt1c[m_tc]
 
         # case d : old
-        pt0_o = ptl[ild][idx_td]
-        pt1_o = pt1d[idx_td]
+        pt0_o = ptl[mld][m_td]
+        pt1_o = pt1d[m_td]
 
-        # TODO : untrack failures for c/d
-        self.trk
+        # retrack recovery case for b
+        # TODO : verify if msk assignments work
+        self.trk[mlb][m_tb] = True
+        self.kpt[mlb][m_tb] = pt1_r
+        # untrack failure cases for c/d
+        self.trk[mlc][~m_tc] = False
+        self.trk[mld][~m_td] = False
+        # update keypoints for d
+        self.kpt[mld][m_td] = pt1_o
 
         # format output
         o_pt0 = np.concatenate([pt0_n, pt0_r, pt0_s, pt0_o], axis=0)
